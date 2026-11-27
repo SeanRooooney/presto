@@ -123,6 +123,7 @@ import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetricsConfig;
+import org.apache.iceberg.MetricsModes.MetricsMode;
 import org.apache.iceberg.MetricsModes.None;
 import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionField;
@@ -1479,7 +1480,7 @@ public abstract class IcebergAbstractMetadata
         Table table = getIcebergTable(session, tableMetadata.getTable());
         MetricsConfig metricsConfig = MetricsConfig.forTable(table);
         Set<ColumnStatisticMetadata> columnStatistics = tableMetadata.getColumns().stream()
-                .filter(column -> !column.isHidden() && metricsConfig.columnMode(column.getName()) != None.get())
+                .filter(column -> !column.isHidden() && getColumnMetricsMode(table.schema(), metricsConfig, column.getName()) != None.get())
                 .flatMap(meta -> getSupportedColumnStatistics(session, meta.getName(), meta.getType()).stream())
                 .collect(toImmutableSet());
 
@@ -1758,6 +1759,18 @@ public abstract class IcebergAbstractMetadata
     {
         return findTopLevelColumnIfPresent(schema, columnName)
                 .orElseThrow(() -> new PrestoException(COLUMN_NOT_FOUND, format("Column '%s' does not exist", columnName)));
+    }
+
+    /**
+     * {@link MetricsConfig} keys per-column modes by the exact Iceberg name, while the engine lowercases column
+     * names, so the name is resolved to its top-level field first. A name that matches no field is looked up
+     * as given, which only matches a lowercase per-column property and otherwise yields the default mode.
+     */
+    protected static MetricsMode getColumnMetricsMode(Schema schema, MetricsConfig metricsConfig, String columnName)
+    {
+        return metricsConfig.columnMode(findTopLevelColumnIfPresent(schema, columnName)
+                .map(NestedField::name)
+                .orElse(columnName));
     }
 
     private static Optional<NestedField> findTopLevelColumnIfPresent(Schema schema, String columnName)
